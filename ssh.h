@@ -731,6 +731,9 @@ int ssh2_userkey_encrypted(const Filename *filename, char **comment);
 struct ssh2_userkey *ssh2_load_userkey(const Filename *filename,
 				       const char *passphrase,
                                        const char **errorstr);
+unsigned char *ssh2_userkey_loadcert(const Filename *filename, char **algorithm,
+				     int *cert_blob_len, char **commentptr,
+				     const char **errorstr);
 unsigned char *ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
 				    int *pub_blob_len, char **commentptr,
 				    const char **errorstr);

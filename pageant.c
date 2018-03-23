@@ -1250,6 +1250,183 @@ void *pageant_get_keylist2(int *length)
     return ret;
 }
 
+static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *blob,
+                                                    int bloblen,
+                                                    const char *algorithm,
+                                                    int key_idx)
+{
+    int pbloblen = 0;
+    unsigned char *pblob;
+    struct ssh2_userkey *skey;
+
+    /* Certificates do not have their own private keys, but requires
+     * the private portion to already be loaded. find the private key
+     * and copy it to us. For this reason we only support loading
+     * certificates locally, as we have access to the private keys. */
+    skey = pageant_nth_ssh2_key(key_idx);
+    pblob = skey->alg->private_blob(skey->data, &pbloblen);
+
+    // TODO
+    return NULL;
+}
+
+static int pageant_validate_add_keyfile(Filename *filename,
+                                        struct sha2_userkey **skey,
+                                        int *ret, char **retstr)
+ {
+    void *blob;
+    void *cert_pub_blob = NULL;
+    char *certalg = NULL;
+    const char *error = NULL;
+    unsigned char *keylist, *p;
+    int i, nkeys, bloblen, cert_pub_blob_len = 0, type, keylistlen;
+    int cert_priv_idx = -1;
+
+    type = key_type(filename);
+    if (type == SSH_KEYTYPE_SSH1) {
+	if (!rsakey_pubblob(filename, &blob, &bloblen, NULL, &error)) {
+            *retstr = dupprintf("Couldn't load private key (%s)", error);
+            *ret = PAGEANT_ACTION_FAILURE;
+	    return ret;
+	}
+	keylist = pageant_get_keylist1(&keylistlen);
+    } else {
+	unsigned char *blob2;
+	blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
+				    NULL, &error);
+	if (!blob) {
+            *retstr = dupprintf("Couldn't load key (%s)", error);
+	    return PAGEANT_ACTION_FAILURE;
+	}
+	/* For our purposes we want the blob prefixed with its length */
+	blob2 = snewn(bloblen+4, unsigned char);
+	PUT_32BIT(blob2, bloblen);
+	memcpy(blob2 + 4, blob, bloblen);
+	sfree(blob);
+	blob = blob2;
+
+	if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+	    cert_pub_blob = blob;
+	    cert_pub_blob_len = bloblen;
+	    blob = ssh2_userkey_loadcert(filename, &certalg, &bloblen,
+		                            NULL, &error);
+	    if (!blob) {
+		*retstr = dupprintf("Couldn't load certificate (%s)", error);
+		return PAGEANT_ACTION_FAILURE;
+	    }
+	    blob2 = snewn(bloblen+4, unsigned char);
+	    PUT_32BIT(blob2, bloblen);
+	    memcpy(blob2 + 4, blob, bloblen);
+	    sfree(blob);
+	    blob = blob2;
+	}
+
+	keylist = pageant_get_keylist2(&keylistlen);
+    }
+    if (keylist) {
+	if (keylistlen < 4) {
+	    *retstr = dupstr("Received broken key list from agent");
+            *ret = PAGEANT_ACTION_FAILURE;
+	    goto validate_error;
+	}
+	nkeys = toint(GET_32BIT(keylist));
+	if (nkeys < 0) {
+	    *retstr = dupstr("Received broken key list from agent");
+            *ret = PAGEANT_ACTION_FAILURE;
+	    goto validate_error;
+	}
+	p = keylist + 4;
+	keylistlen -= 4;
+
+	for (i = 0; i < nkeys; i++) {
+	    if (!memcmp(blob, p, bloblen)) {
+		/* Key is already present; we can now leave. */
+		*ret = PAGEANT_ACTION_OK;
+		goto validate_error;
+	    }
+	    if (cert_pub_blob_len > 0 &&
+		!memcmp(cert_pub_blob, p, cert_pub_blob_len)) {
+		cert_priv_idx = i;
+	    }
+	    /* Now skip over public blob */
+	    if (type == SSH_KEYTYPE_SSH1) {
+		int n = rsa_public_blob_len(p, keylistlen);
+		if (n < 0) {
+		    *retstr = dupstr("Received broken key list from agent");
+		    *ret = PAGEANT_ACTION_FAILURE;
+		    goto validate_error;
+		}
+		p += n;
+		keylistlen -= n;
+	    } else {
+		int n;
+		if (keylistlen < 4) {
+		    *retstr = dupstr("Received broken key list from agent");
+		    *ret = PAGEANT_ACTION_FAILURE;
+		    goto validate_error;
+		}
+		n = GET_32BIT(p);
+                p += 4;
+                keylistlen -= 4;
+
+		if (n < 0 || n > keylistlen) {
+		    *retstr = dupstr("Received broken key list from agent");
+		    *ret = PAGEANT_ACTION_FAILURE;
+		    goto validate_error;
+		}
+		p += n;
+		keylistlen -= n;
+	    }
+	    /* Now skip over comment field */
+	    {
+		int n;
+		if (keylistlen < 4) {
+		    *retstr = dupstr("Received broken key list from agent");
+		    *ret = PAGEANT_ACTION_FAILURE;
+		    goto validate_error;
+		}
+		n = GET_32BIT(p);
+		p += 4;
+		keylistlen -= 4;
+
+		if (n < 0 || n > keylistlen) {
+		    *retstr = dupstr("Received broken key list from agent");
+		    *ret = PAGEANT_ACTION_FAILURE;
+		    goto validate_error;
+		}
+		p += n;
+		keylistlen -= n;
+	    }
+	}
+
+	sfree(keylist);
+    }
+
+    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+	if (cert_priv_idx < 0) {
+	    *retstr = dupstr("No matching private key loaded for certificate");
+	    *ret = PAGEANT_ACTION_FAILURE;
+	    goto validate_error;
+	}
+	*skey = pageant_build_cert_skey(blob, bloblen, certalg, cert_priv_idx);
+	sfree(certalg);
+    }
+
+    sfree(blob);
+    return NULL;
+
+validate_error:
+    if (keylist)
+      sfree(keylist);
+    if (blob)
+      sfree(blob);
+    if (cert_pub_blob)
+      sfree(cert_pub_blob);
+    if (certalg)
+      sfree(certalg);
+    return ret;
+}
+
 int pageant_add_keyfile(Filename *filename, const char *passphrase,
                         char **retstr)
 {
@@ -1258,10 +1435,10 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     int needs_pass;
     int ret;
     int attempts;
-    int cert_has_priv = 0;
     char *comment;
     const char *this_passphrase;
     const char *error = NULL;
+    char *certalg = NULL;
     int type;
 
     if (!passphrases) {
@@ -1281,145 +1458,11 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     /*
      * See if the key is already loaded (in the primary Pageant,
      * which may or may not be us).
+     * For certificates, take this oppertunity to match public/private keys.
      */
-    {
-	void *blob;
-	void *cert_pub_blob = NULL;
-	unsigned char *keylist, *p;
-	int i, nkeys, bloblen, cert_pub_blob_len = 0, keylistlen;
+    if (pageant_validate_add_keyfile(filename, &skey, &ret, retstr))
+	return ret;
 
-	if (type == SSH_KEYTYPE_SSH1) {
-	    if (!rsakey_pubblob(filename, &blob, &bloblen, NULL, &error)) {
-                *retstr = dupprintf("Couldn't load private key (%s)", error);
-                return PAGEANT_ACTION_FAILURE;
-	    }
-	    keylist = pageant_get_keylist1(&keylistlen);
-	} else {
-	    unsigned char *blob2;
-	    blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
-					NULL, &error);
-	    if (!blob) {
-                *retstr = dupprintf("Couldn't load key (%s)", error);
-		return PAGEANT_ACTION_FAILURE;
-	    }
-	    /* For our purposes we want the blob prefixed with its length */
-	    blob2 = snewn(bloblen+4, unsigned char);
-	    PUT_32BIT(blob2, bloblen);
-	    memcpy(blob2 + 4, blob, bloblen);
-	    sfree(blob);
-	    blob = blob2;
-
-	    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
-		cert_pub_blob = blob;
-		cert_pub_blob_len = bloblen;
-		blob = ssh2_userkey_loadcert(filename, NULL, &bloblen,
-		                             NULL, &error);
-		blob2 = snewn(bloblen+4, unsigned char);
-		PUT_32BIT(blob2, bloblen);
-		memcpy(blob2 + 4, blob, bloblen);
-		sfree(blob);
-		blob = blob2;
-	    }
-
-	    keylist = pageant_get_keylist2(&keylistlen);
-	}
-	if (keylist) {
-	    if (keylistlen < 4) {
-		*retstr = dupstr("Received broken key list from agent");
-                sfree(keylist);
-                sfree(blob);
-		return PAGEANT_ACTION_FAILURE;
-	    }
-	    nkeys = toint(GET_32BIT(keylist));
-	    if (nkeys < 0) {
-		*retstr = dupstr("Received broken key list from agent");
-                sfree(keylist);
-                sfree(blob);
-		return PAGEANT_ACTION_FAILURE;
-	    }
-	    p = keylist + 4;
-	    keylistlen -= 4;
-
-	    for (i = 0; i < nkeys; i++) {
-		if (!memcmp(blob, p, bloblen)) {
-		    /* Key is already present; we can now leave. */
-		    sfree(keylist);
-		    sfree(blob);
-                    return PAGEANT_ACTION_OK;
-		}
-		if (cert_pub_blob_len > 0 &&
-		    !memcmp(cert_pub_blob, p, cert_pub_blob_len)) {
-		    cert_has_priv = 1;
-		}
-		/* Now skip over public blob */
-		if (type == SSH_KEYTYPE_SSH1) {
-		    int n = rsa_public_blob_len(p, keylistlen);
-		    if (n < 0) {
-                        *retstr = dupstr("Received broken key list from agent");
-                        sfree(keylist);
-                        sfree(blob);
-                        return PAGEANT_ACTION_FAILURE;
-		    }
-		    p += n;
-		    keylistlen -= n;
-		} else {
-		    int n;
-		    if (keylistlen < 4) {
-                        *retstr = dupstr("Received broken key list from agent");
-                        sfree(keylist);
-                        sfree(blob);
-                        return PAGEANT_ACTION_FAILURE;
-		    }
-		    n = GET_32BIT(p);
-                    p += 4;
-                    keylistlen -= 4;
-
-		    if (n < 0 || n > keylistlen) {
-                        *retstr = dupstr("Received broken key list from agent");
-                        sfree(keylist);
-                        sfree(blob);
-                        return PAGEANT_ACTION_FAILURE;
-		    }
-		    p += n;
-		    keylistlen -= n;
-		}
-		/* Now skip over comment field */
-		{
-		    int n;
-		    if (keylistlen < 4) {
-                        *retstr = dupstr("Received broken key list from agent");
-                        sfree(keylist);
-                        sfree(blob);
-                        return PAGEANT_ACTION_FAILURE;
-		    }
-		    n = GET_32BIT(p);
-                    p += 4;
-                    keylistlen -= 4;
-
-		    if (n < 0 || n > keylistlen) {
-                        *retstr = dupstr("Received broken key list from agent");
-                        sfree(keylist);
-                        sfree(blob);
-                        return PAGEANT_ACTION_FAILURE;
-		    }
-		    p += n;
-		    keylistlen -= n;
-		}
-	    }
-
-	    sfree(keylist);
-	}
-
-	sfree(blob);
-    }
-
-    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1 &&
-	cert_has_priv == 0) {
-        *retstr = dupstr("No matching private key loaded for certificate");
-        return PAGEANT_ACTION_FAILURE;
-    }
-
-    error = NULL;
     if (type == SSH_KEYTYPE_SSH1)
 	needs_pass = rsakey_encrypted(filename, &comment);
     else
@@ -1461,9 +1504,8 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 	if (type == SSH_KEYTYPE_SSH1)
 	    ret = loadrsakey(filename, rkey, this_passphrase, &error);
 	else if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
-	    /* TODO(bluecmd) */
-	    skey = NULL;
-	    ret = (skey != NULL);
+	    /* key is already constructed */
+	    ret = 1;
 	} else {
 	    skey = ssh2_load_userkey(filename, this_passphrase, &error);
 	    if (skey == SSH2_WRONG_PASSPHRASE)
