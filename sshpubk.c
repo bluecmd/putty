@@ -1639,6 +1639,7 @@ static int key_type_fp(FILE *fp)
     const char sshcom_sig[] = "---- BEGIN SSH2 ENCRYPTED PRIVAT";
     const char openssh_new_sig[] = "-----BEGIN OPENSSH PRIVATE KEY";
     const char openssh_sig[] = "-----BEGIN ";
+    const char openssh_cert_v1_suffix[] = "-cert-v01@openssh.com";
     int i;
     char *p;
 
@@ -1672,6 +1673,15 @@ static int key_type_fp(FILE *fp)
                           "klmnopqrstuvwxyz+/="),
          *p == ' ' || *p == '\n' || !*p))
 	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH;
+    if ((p = buf + strcspn(buf, " "),
+        (p - buf) > sizeof(openssh_cert_v1_suffix)-1 &&
+        (memcmp(p - sizeof(openssh_cert_v1_suffix)-1,
+               openssh_cert_v1_suffix, sizeof(openssh_cert_v1_suffix)-1)) &&
+        find_pubkey_alg_len(p-buf-(sizeof(openssh_cert_v1_suffix)-1), buf)) &&
+        (p = p+1 + strspn(p+1, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
+                          "klmnopqrstuvwxyz+/="),
+         *p == ' ' || *p == '\n' || !*p))
+	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1;
     return SSH_KEYTYPE_UNKNOWN;	       /* unrecognised or EOF */
 }
 
@@ -1700,6 +1710,7 @@ const char *key_type_to_str(int type)
       case SSH_KEYTYPE_SSH1_PUBLIC: return "SSH-1 public key"; break;
       case SSH_KEYTYPE_SSH2_PUBLIC_RFC4716: return "SSH-2 public key (RFC 4716 format)"; break;
       case SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH: return "SSH-2 public key (OpenSSH format)"; break;
+      case SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1: return "SSH-2 public key (certificate v1)"; break;
       case SSH_KEYTYPE_SSH1: return "SSH-1 private key"; break;
       case SSH_KEYTYPE_SSH2: return "PuTTY SSH-2 private key"; break;
       case SSH_KEYTYPE_OPENSSH_PEM: return "OpenSSH SSH-2 private key (old PEM format)"; break;

@@ -780,7 +780,8 @@ enum {
      */
     SSH_KEYTYPE_SSH1_PUBLIC,
     SSH_KEYTYPE_SSH2_PUBLIC_RFC4716,
-    SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH
+    SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH,
+    SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1
 };
 char *ssh1_pubkey_str(struct RSAKey *ssh1key);
 void ssh1_write_pubkey(FILE *fp, struct RSAKey *ssh1key);

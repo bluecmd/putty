@@ -148,3 +148,5 @@
 /windows/*.msi
 /windows/*.wixobj
 /windows/*.wixpdb
+windows/licence.h
+windows/version.h
