@@ -1258,6 +1258,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     int needs_pass;
     int ret;
     int attempts;
+    int cert_has_priv = 0;
     char *comment;
     const char *this_passphrase;
     const char *error = NULL;
@@ -1270,7 +1271,8 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
     *retstr = NULL;
 
     type = key_type(filename);
-    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2) {
+    if (type != SSH_KEYTYPE_SSH1 && type != SSH_KEYTYPE_SSH2 &&
+        type != SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
 	*retstr = dupprintf("Couldn't load this key (%s)",
                             key_type_to_str(type));
 	return PAGEANT_ACTION_FAILURE;
@@ -1282,8 +1284,9 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
      */
     {
 	void *blob;
+	void *cert_pub_blob = NULL;
 	unsigned char *keylist, *p;
-	int i, nkeys, bloblen, keylistlen;
+	int i, nkeys, bloblen, cert_pub_blob_len = 0, keylistlen;
 
 	if (type == SSH_KEYTYPE_SSH1) {
 	    if (!rsakey_pubblob(filename, &blob, &bloblen, NULL, &error)) {
@@ -1296,7 +1299,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 	    blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
 					NULL, &error);
 	    if (!blob) {
-                *retstr = dupprintf("Couldn't load private key (%s)", error);
+                *retstr = dupprintf("Couldn't load key (%s)", error);
 		return PAGEANT_ACTION_FAILURE;
 	    }
 	    /* For our purposes we want the blob prefixed with its length */
@@ -1305,6 +1308,18 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 	    memcpy(blob2 + 4, blob, bloblen);
 	    sfree(blob);
 	    blob = blob2;
+
+	    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+		cert_pub_blob = blob;
+		cert_pub_blob_len = bloblen;
+		blob = ssh2_userkey_loadcert(filename, NULL, &bloblen,
+		                             NULL, &error);
+		blob2 = snewn(bloblen+4, unsigned char);
+		PUT_32BIT(blob2, bloblen);
+		memcpy(blob2 + 4, blob, bloblen);
+		sfree(blob);
+		blob = blob2;
+	    }
 
 	    keylist = pageant_get_keylist2(&keylistlen);
 	}
@@ -1331,6 +1346,10 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 		    sfree(keylist);
 		    sfree(blob);
                     return PAGEANT_ACTION_OK;
+		}
+		if (cert_pub_blob_len > 0 &&
+		    !memcmp(cert_pub_blob, p, cert_pub_blob_len)) {
+		    cert_has_priv = 1;
 		}
 		/* Now skip over public blob */
 		if (type == SSH_KEYTYPE_SSH1) {
@@ -1394,6 +1413,12 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 	sfree(blob);
     }
 
+    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1 &&
+	cert_has_priv == 0) {
+        *retstr = dupstr("No matching private key loaded for certificate");
+        return PAGEANT_ACTION_FAILURE;
+    }
+
     error = NULL;
     if (type == SSH_KEYTYPE_SSH1)
 	needs_pass = rsakey_encrypted(filename, &comment);
@@ -1435,7 +1460,11 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 
 	if (type == SSH_KEYTYPE_SSH1)
 	    ret = loadrsakey(filename, rkey, this_passphrase, &error);
-	else {
+	else if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+	    /* TODO(bluecmd) */
+	    skey = NULL;
+	    ret = (skey != NULL);
+	} else {
 	    skey = ssh2_load_userkey(filename, this_passphrase, &error);
 	    if (skey == SSH2_WRONG_PASSPHRASE)
 		ret = -1;

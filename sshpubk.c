@@ -14,6 +14,7 @@
 #include "misc.h"
 
 #define rsa_signature "SSH PRIVATE KEY FILE FORMAT 1.1\n"
+#define openssh_certv1_suffix "-cert-v01@openssh.com"
 
 #define BASE64_TOINT(x) ( (x)-'A'<26 ? (x)-'A'+0 :\
                           (x)-'a'<26 ? (x)-'a'+26 :\
@@ -1104,6 +1105,166 @@ unsigned char *openssh_loadpub(FILE *fp, char **algorithm,
     return NULL;
 }
 
+unsigned char *openssh_certv1_to_pub_key(const unsigned char *cert_blob, 
+                                         int cert_blob_len,
+                                         int *public_blob_len,
+                                         const struct ssh_signkey *alg)
+{
+    int len;
+    unsigned char *public_blob = NULL;
+    void *pkey = NULL;
+    const unsigned char *alg_p = NULL;
+    int alg_p_len = 0;
+
+    if (cert_blob_len < 4)
+	return NULL;
+
+    /* Certificate format is almost the same for certificates and
+    * normal keys. By replacing the algorithm name and skipping the
+    * nonce we can reuse the normal algorithm code. */
+    len = toint(GET_32BIT(cert_blob));
+    cert_blob += 4;
+    cert_blob_len -= 4;
+    if (len > cert_blob_len)
+	return NULL;
+    alg_p = cert_blob;
+    alg_p_len = len - (sizeof(openssh_certv1_suffix)-1);
+    if (memcmp(alg_p, alg->name, alg_p_len) != 0)
+	return NULL;
+    cert_blob += len;
+    cert_blob_len -= len;
+
+    /* Skip over the nonce */
+    if (cert_blob_len < 4)
+	return NULL;
+    len = toint(GET_32BIT(cert_blob));
+    cert_blob += 4;
+    cert_blob_len -= 4;
+    if (len > cert_blob_len)
+	return NULL;
+    cert_blob += len;
+    cert_blob_len -= len;
+
+    *public_blob_len = cert_blob_len + alg_p_len + 4;
+    public_blob = snewn(*public_blob_len, unsigned char);
+    PUT_32BIT(public_blob, alg_p_len);
+    memcpy(public_blob + 4, alg_p, alg_p_len);
+    memcpy(public_blob + 4 + alg_p_len, cert_blob, cert_blob_len);
+
+    /* Decode the key and then re-serialize it to remove certificate
+    * specific data. */
+    pkey = alg->newkey(alg, public_blob, *public_blob_len);
+    sfree(public_blob);
+    return alg->public_blob(pkey, public_blob_len);
+}
+
+unsigned char *openssh_loadpub_from_cert(FILE *fp, char **algorithm,
+                                         int *pub_blob_len,
+                                         unsigned char **cert_blob,
+                                         int *cert_blob_len,
+                                         char **commentptr,
+                                         const char **errorstr)
+{
+    const char *error = NULL;
+    const struct ssh_signkey *alg;
+    char *comment = NULL;
+    int p_blob_len = 0;
+    int c_blob_len = 0;
+    unsigned char *p_blob = NULL;
+    unsigned char *c_blob = NULL;
+    int type;
+
+    type = key_type_fp(fp);
+    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+	int suffix_len = sizeof(openssh_certv1_suffix)-1;
+	char *alg_str = NULL;
+	c_blob = openssh_loadpub(fp, &alg_str, &c_blob_len, &comment,
+	                            errorstr);
+        fclose(fp);
+	if (c_blob == NULL)
+	    goto error;
+	if (strlen(alg_str) < (unsigned int)suffix_len) {
+	    error = "not a certificate";
+	    goto error;
+	}
+	alg = find_pubkey_alg_len(strlen(alg_str) - suffix_len, alg_str);
+	sfree(alg_str);
+	if (alg == NULL) {
+	    error = "not a supported algorithm for certificate type";
+	    goto error;
+	}
+
+	p_blob = openssh_certv1_to_pub_key(c_blob, c_blob_len,
+	                                   &p_blob_len, alg);
+	if (p_blob == NULL) {
+	    error = "certificate is corrupt";
+	    goto error;
+	}
+    } else {
+        error = "not a supported certificate file";
+        goto error;
+    }
+
+    if (algorithm)
+      *algorithm = dupstr(alg->name);
+    if (commentptr)
+        *commentptr = comment;
+    else
+        sfree(comment);
+    if (pub_blob_len)
+        *pub_blob_len = p_blob_len;
+    if (cert_blob_len)
+        *cert_blob_len = c_blob_len;
+    if (cert_blob)
+        *cert_blob = c_blob;
+    else
+	sfree(c_blob);
+    return p_blob;
+error:
+    if (fp)
+	fclose(fp);
+    if (comment)
+	sfree(comment);
+    if (c_blob)
+	sfree(c_blob);
+    if (errorstr)
+	*errorstr = error;
+    return NULL;
+}
+
+unsigned char *ssh2_userkey_loadcert(const Filename *filename, char **algorithm,
+				     int *cert_blob_len, char **commentptr,
+				     const char **errorstr) {
+    FILE *fp;
+    int type;
+    const char *error = NULL;
+
+    fp = f_open(filename, "rb", FALSE);
+    if (!fp) {
+	error = "can't open file";
+	goto error;
+    }
+
+    type = key_type_fp(fp);
+    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+        unsigned char *pub;
+        unsigned char *cert;
+	pub = openssh_loadpub_from_cert(fp, algorithm, NULL, &cert,
+	                                cert_blob_len, commentptr,
+	                                errorstr);
+        fclose(fp);
+        return cert;
+    } else {
+	error = "unknown certificate type";
+    }
+  error:
+    if (fp)
+	fclose(fp);
+    if (errorstr)
+	*errorstr = error;
+    return NULL;
+}
+
 unsigned char *ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
 				    int *pub_blob_len, char **commentptr,
 				    const char **errorstr)
@@ -1136,6 +1297,12 @@ unsigned char *ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
     } else if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
         unsigned char *ret = openssh_loadpub(fp, algorithm, pub_blob_len,
                                              commentptr, errorstr);
+        fclose(fp);
+        return ret;
+    } else if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
+        unsigned char *ret;
+	ret = openssh_loadpub_from_cert(fp, algorithm,pub_blob_len,
+                                        NULL, NULL, commentptr, errorstr);
         fclose(fp);
         return ret;
     } else if (type != SSH_KEYTYPE_SSH2) {
@@ -1639,7 +1806,6 @@ static int key_type_fp(FILE *fp)
     const char sshcom_sig[] = "---- BEGIN SSH2 ENCRYPTED PRIVAT";
     const char openssh_new_sig[] = "-----BEGIN OPENSSH PRIVATE KEY";
     const char openssh_sig[] = "-----BEGIN ";
-    const char openssh_cert_v1_suffix[] = "-cert-v01@openssh.com";
     int i;
     char *p;
 
@@ -1674,10 +1840,10 @@ static int key_type_fp(FILE *fp)
          *p == ' ' || *p == '\n' || !*p))
 	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH;
     if ((p = buf + strcspn(buf, " "),
-        (p - buf) > sizeof(openssh_cert_v1_suffix)-1 &&
-        (memcmp(p - sizeof(openssh_cert_v1_suffix)-1,
-               openssh_cert_v1_suffix, sizeof(openssh_cert_v1_suffix)-1)) &&
-        find_pubkey_alg_len(p-buf-(sizeof(openssh_cert_v1_suffix)-1), buf)) &&
+        (p - buf) > sizeof(openssh_certv1_suffix)-1 &&
+        (memcmp(p - sizeof(openssh_certv1_suffix)-1,
+               openssh_certv1_suffix, sizeof(openssh_certv1_suffix)-1)) &&
+        find_pubkey_alg_len(p-buf-(sizeof(openssh_certv1_suffix)-1), buf)) &&
         (p = p+1 + strspn(p+1, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
                           "klmnopqrstuvwxyz+/="),
          *p == ' ' || *p == '\n' || !*p))
