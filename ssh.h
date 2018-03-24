@@ -173,9 +173,11 @@ struct ec_key {
 
 struct certv1_key {
     const struct ssh_signkey *alg;
+    void *pub;
+    int publen;
+    void *cert;
+    int certlen;
     void *key;
-    unsigned char *todo_data;
-    int todo_data_len;
 /*
 TODO
    string    nonce
@@ -420,6 +422,7 @@ struct ssh_signkey {
     char *(*fmtkey) (void *key);
     unsigned char *(*public_blob) (void *key, int *len);
     unsigned char *(*private_blob) (void *key, int *len);
+    unsigned char *(*inner_blob) (void *key, int *len);
     void *(*createkey) (const struct ssh_signkey *self,
                         const unsigned char *pub_blob, int pub_len,
 			const unsigned char *priv_blob, int priv_len);

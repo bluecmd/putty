@@ -667,6 +667,7 @@ const struct ssh_signkey ssh_dss = {
     dss_fmtkey,
     dss_public_blob,
     dss_private_blob,
+    NULL /* inner_blob */,
     dss_createkey,
     dss_openssh_createkey,
     dss_openssh_fmtkey,

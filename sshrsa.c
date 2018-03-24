@@ -911,6 +911,7 @@ const struct ssh_signkey ssh_rsa = {
     rsa2_fmtkey,
     rsa2_public_blob,
     rsa2_private_blob,
+    NULL /* inner_blob */,
     rsa2_createkey,
     rsa2_openssh_createkey,
     rsa2_openssh_fmtkey,

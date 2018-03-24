@@ -2001,17 +2001,27 @@ static void *ecdsa_createkey(const struct ssh_signkey *self,
 static void certv1_freekey(void *key)
 {
     struct certv1_key *cert = (struct certv1_key *) key;
-    cert->alg->freekey(cert->key);
-    sfree(cert->todo_data);
+    if (cert->key)
+      cert->alg->freekey(cert->key);
+    sfree(cert->cert);
+    sfree(cert->pub);
+}
+
+static unsigned char *certv1_inner_blob(void *key, int *len)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    unsigned char *blob = snewn(cert->publen, unsigned char);
+    memcpy(blob, cert->pub, cert->publen);
+    *len = cert->publen;
+    return blob;
 }
 
 static unsigned char *certv1_public_blob(void *key, int *len)
 {
     struct certv1_key *cert = (struct certv1_key *) key;
-    // Return signature here I guess? TODO
-    unsigned char *blob = snewn(cert->todo_data_len, unsigned char);
-    memcpy(blob, cert->todo_data, cert->todo_data_len);
-    *len = cert->todo_data_len;
+    unsigned char *blob = snewn(cert->certlen, unsigned char);
+    memcpy(blob, cert->cert, cert->certlen);
+    *len = cert->certlen;
     return blob;
 }
 
@@ -2021,7 +2031,7 @@ static void *certv1_createkey(const struct ssh_signkey *self,
                               const unsigned char *priv_blob,
                               int priv_len)
 {
-    struct ssh_signkey *alg;
+    const struct ssh_signkey *alg;
     int pub_len;
     unsigned char *pub_blob;
     struct certv1_key *cert;
@@ -2033,10 +2043,19 @@ static void *certv1_createkey(const struct ssh_signkey *self,
 
     cert = snew(struct certv1_key);
     cert->alg = alg;
-    cert->key = alg->createkey(alg, pub_blob, pub_len, priv_blob, priv_len);
-    cert->todo_data = snewn(cert_len, unsigned char);
-    memcpy(cert->todo_data, cert_blob, cert_len);
-    cert->todo_data_len = cert_len;
+    cert->pub = pub_blob;
+    cert->publen = pub_len;
+    if (priv_len > 0) {
+	/* We might be doing a partial load to match with the
+	 * private key later */
+	cert->key = alg->createkey(alg, pub_blob, pub_len,
+	                           priv_blob, priv_len);
+    } else {
+	cert->key = NULL;
+    }
+    cert->cert = snewn(cert_len, unsigned char);
+    memcpy(cert->cert, cert_blob, cert_len);
+    cert->certlen = cert_len;
     // TODO
     return cert;
 }
@@ -2638,6 +2657,7 @@ const struct ssh_signkey ssh_ecdsa_ed25519 = {
     ecdsa_fmtkey,
     ecdsa_public_blob,
     ecdsa_private_blob,
+    NULL /* inner_blob */,
     ecdsa_createkey,
     ed25519_openssh_createkey,
     ed25519_openssh_fmtkey,
@@ -2664,6 +2684,7 @@ const struct ssh_signkey ssh_ecdsa_nistp256 = {
     ecdsa_fmtkey,
     ecdsa_public_blob,
     ecdsa_private_blob,
+    NULL /* inner_blob */,
     ecdsa_createkey,
     ecdsa_openssh_createkey,
     ecdsa_openssh_fmtkey,
@@ -2681,6 +2702,7 @@ const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
     NULL /* certv1_fmtkey */,
     certv1_public_blob,
     NULL /* certv1_private_blob */,
+    certv1_inner_blob,
     certv1_createkey,
     NULL /* certv1_openssh_createkey */,
     NULL /* certv1_openssh_fmtkey */,
@@ -2707,6 +2729,7 @@ const struct ssh_signkey ssh_ecdsa_nistp384 = {
     ecdsa_fmtkey,
     ecdsa_public_blob,
     ecdsa_private_blob,
+    NULL /* inner_blob */,
     ecdsa_createkey,
     ecdsa_openssh_createkey,
     ecdsa_openssh_fmtkey,
@@ -2733,6 +2756,7 @@ const struct ssh_signkey ssh_ecdsa_nistp521 = {
     ecdsa_fmtkey,
     ecdsa_public_blob,
     ecdsa_private_blob,
+    NULL /* inner_blob */,
     ecdsa_createkey,
     ecdsa_openssh_createkey,
     ecdsa_openssh_fmtkey,
