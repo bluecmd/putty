@@ -2131,8 +2131,16 @@ static void *certv1_openssh_createkey(const struct ssh_signkey *self,
 static int certv1_pubkey_bits(const struct ssh_signkey *self,
                               const void *blob, int len)
 {
-    // TODO
-    return 1337;
+    const struct ssh_signkey *alg;
+    alg = find_pubkey_alg((const char*)self->extra);
+    return alg->pubkey_bits(alg, blob, len);
+}
+
+static unsigned char *certv1_sign(void *key, const char *data, int datalen,
+                                  int *siglen)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    return cert->alg->sign(cert->key, data, datalen, siglen);
 }
 
 static void *ed25519_openssh_createkey(const struct ssh_signkey *self,
@@ -2767,7 +2775,7 @@ const struct ssh_signkey ssh_ecdsa_nistp256 = {
 const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
     NULL /* newkey */,
     certv1_freekey,
-    NULL /* certv1_fmtkey */,
+    NULL /* fmtkey */,
     certv1_public_blob,
     certv1_private_blob,
     certv1_inner_blob,
@@ -2776,8 +2784,8 @@ const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
     certv1_openssh_fmtkey,
     -1,
     certv1_pubkey_bits,
-    NULL /* certv1_verifysig */,
-    NULL /* certv1_sign */,
+    NULL /* verifysig */,
+    certv1_sign,
     "ecdsa-sha2-nistp256-cert-v01@openssh.com",
     "ecdsa-sha2-nistp256-cert-v01@openssh.com",
     "ecdsa-sha2-nistp256",
