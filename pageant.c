@@ -1257,6 +1257,7 @@ static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *pubblob,
 {
     int prvbloblen = 0;
     unsigned char *prvblob;
+    const char *comment;
     struct ssh2_userkey *skey;
 
     /* Certificates do not have their own private keys, but requires
@@ -1266,7 +1267,11 @@ static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *pubblob,
     skey = pageant_nth_ssh2_key(key_idx);
     prvblob = skey->alg->private_blob(skey->data, &prvbloblen);
 
+    /* OpenSSH copies the comment from the public key so let's do the same */
+    comment = skey->comment;
+
     skey = snew(struct ssh2_userkey);
+    skey->comment = dupstr(comment);
     skey->alg = find_pubkey_alg(algorithm);
     if (skey->alg == NULL)
 	return NULL;
@@ -1423,7 +1428,6 @@ static int pageant_validate_add_keyfile(Filename *filename,
 	    *ret = PAGEANT_ACTION_FAILURE;
 	    goto validate_error;
 	}
-	(*skey)->comment = comment;
 	sfree(certalg);
     }
     sfree(keylist);
