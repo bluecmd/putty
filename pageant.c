@@ -1250,13 +1250,13 @@ void *pageant_get_keylist2(int *length)
     return ret;
 }
 
-static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *blob,
-                                                    int bloblen,
+static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *pubblob,
+                                                    int pubbloblen,
                                                     const char *algorithm,
                                                     int key_idx)
 {
-    int pbloblen = 0;
-    unsigned char *pblob;
+    int prvbloblen = 0;
+    unsigned char *prvblob;
     struct ssh2_userkey *skey;
 
     /* Certificates do not have their own private keys, but requires
@@ -1264,20 +1264,28 @@ static struct ssh2_userkey *pageant_build_cert_skey(unsigned char *blob,
      * and copy it to us. For this reason we only support loading
      * certificates locally, as we have access to the private keys. */
     skey = pageant_nth_ssh2_key(key_idx);
-    pblob = skey->alg->private_blob(skey->data, &pbloblen);
+    prvblob = skey->alg->private_blob(skey->data, &prvbloblen);
 
-    // TODO
-    return NULL;
+    skey = snew(struct ssh2_userkey);
+    skey->alg = find_pubkey_alg(algorithm);
+    if (skey->alg == NULL)
+	return NULL;
+
+    skey->data = skey->alg->createkey(skey, pubblob, pubbloblen,
+	                              prvblob, prvbloblen);
+    sfree(prvblob);
+    return skey;
 }
 
 static int pageant_validate_add_keyfile(Filename *filename,
-                                        struct sha2_userkey **skey,
+                                        struct ssh2_userkey **skey,
                                         int *ret, char **retstr)
  {
     void *blob;
     void *cert_pub_blob = NULL;
     char *certalg = NULL;
     const char *error = NULL;
+    char *comment = NULL;
     unsigned char *keylist, *p;
     int i, nkeys, bloblen, cert_pub_blob_len = 0, type, keylistlen;
     int cert_priv_idx = -1;
@@ -1293,7 +1301,7 @@ static int pageant_validate_add_keyfile(Filename *filename,
     } else {
 	unsigned char *blob2;
 	blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
-				    NULL, &error);
+	                            &comment, &error);
 	if (!blob) {
             *retstr = dupprintf("Couldn't load key (%s)", error);
 	    return PAGEANT_ACTION_FAILURE;
@@ -1309,7 +1317,7 @@ static int pageant_validate_add_keyfile(Filename *filename,
 	    cert_pub_blob = blob;
 	    cert_pub_blob_len = bloblen;
 	    blob = ssh2_userkey_loadcert(filename, &certalg, &bloblen,
-		                            NULL, &error);
+		                         NULL, &error);
 	    if (!blob) {
 		*retstr = dupprintf("Couldn't load certificate (%s)", error);
 		return PAGEANT_ACTION_FAILURE;
@@ -1398,8 +1406,6 @@ static int pageant_validate_add_keyfile(Filename *filename,
 		keylistlen -= n;
 	    }
 	}
-
-	sfree(keylist);
     }
 
     if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
@@ -1408,22 +1414,33 @@ static int pageant_validate_add_keyfile(Filename *filename,
 	    *ret = PAGEANT_ACTION_FAILURE;
 	    goto validate_error;
 	}
-	*skey = pageant_build_cert_skey(blob, bloblen, certalg, cert_priv_idx);
+	*skey = pageant_build_cert_skey(cert_pub_blob, cert_pub_blob_len,
+	                                certalg, cert_priv_idx);
+	if (*skey == NULL) {
+	    *retstr = dupprintf("Couldn't load certificate with algorithm %s",
+	                        certalg);
+	    *ret = PAGEANT_ACTION_FAILURE;
+	    goto validate_error;
+	}
+	(*skey)->comment = comment;
 	sfree(certalg);
     }
-
+    sfree(keylist);
+    sfree(comment);
     sfree(blob);
     return NULL;
 
 validate_error:
+    if (comment)
+	sfree(comment);
     if (keylist)
-      sfree(keylist);
+	sfree(keylist);
     if (blob)
-      sfree(blob);
+	sfree(blob);
     if (cert_pub_blob)
-      sfree(cert_pub_blob);
+	sfree(cert_pub_blob);
     if (certalg)
-      sfree(certalg);
+	sfree(certalg);
     return ret;
 }
 

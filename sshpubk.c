@@ -1162,6 +1162,7 @@ unsigned char *openssh_loadpub_from_cert(FILE *fp, char **algorithm,
                                          int *pub_blob_len,
                                          unsigned char **cert_blob,
                                          int *cert_blob_len,
+                                         char **cert_algorithm,
                                          char **commentptr,
                                          const char **errorstr)
 {
@@ -1172,14 +1173,14 @@ unsigned char *openssh_loadpub_from_cert(FILE *fp, char **algorithm,
     int c_blob_len = 0;
     unsigned char *p_blob = NULL;
     unsigned char *c_blob = NULL;
+    char *alg_str = NULL;
     int type;
 
     type = key_type_fp(fp);
     if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
 	int suffix_len = sizeof(openssh_certv1_suffix)-1;
-	char *alg_str = NULL;
 	c_blob = openssh_loadpub(fp, &alg_str, &c_blob_len, &comment,
-	                            errorstr);
+	                         errorstr);
         fclose(fp);
 	if (c_blob == NULL)
 	    goto error;
@@ -1188,7 +1189,6 @@ unsigned char *openssh_loadpub_from_cert(FILE *fp, char **algorithm,
 	    goto error;
 	}
 	alg = find_pubkey_alg_len(strlen(alg_str) - suffix_len, alg_str);
-	sfree(alg_str);
 	if (alg == NULL) {
 	    error = "not a supported algorithm for certificate type";
 	    goto error;
@@ -1205,6 +1205,8 @@ unsigned char *openssh_loadpub_from_cert(FILE *fp, char **algorithm,
         goto error;
     }
 
+    if (cert_algorithm)
+      *cert_algorithm = alg_str;
     if (algorithm)
       *algorithm = dupstr(alg->name);
     if (commentptr)
@@ -1227,14 +1229,16 @@ error:
 	sfree(comment);
     if (c_blob)
 	sfree(c_blob);
+    if (alg_str)
+	sfree(alg_str);
     if (errorstr)
 	*errorstr = error;
     return NULL;
 }
 
 unsigned char *ssh2_userkey_loadcert(const Filename *filename, char **algorithm,
-				     int *cert_blob_len, char **commentptr,
-				     const char **errorstr) {
+                                     int *cert_blob_len, char **commentptr,
+                                     const char **errorstr) {
     FILE *fp;
     int type;
     const char *error = NULL;
@@ -1249,9 +1253,8 @@ unsigned char *ssh2_userkey_loadcert(const Filename *filename, char **algorithm,
     if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
         unsigned char *pub;
         unsigned char *cert;
-	pub = openssh_loadpub_from_cert(fp, algorithm, NULL, &cert,
-	                                cert_blob_len, commentptr,
-	                                errorstr);
+	pub = openssh_loadpub_from_cert(fp, NULL, NULL, &cert, cert_blob_len,
+	                                algorithm, commentptr, errorstr);
         fclose(fp);
         return cert;
     } else {
@@ -1301,8 +1304,9 @@ unsigned char *ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
         return ret;
     } else if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
         unsigned char *ret;
-	ret = openssh_loadpub_from_cert(fp, algorithm,pub_blob_len,
-                                        NULL, NULL, commentptr, errorstr);
+	ret = openssh_loadpub_from_cert(fp, algorithm, pub_blob_len,
+                                        NULL, NULL, NULL, commentptr,
+	                                errorstr);
         fclose(fp);
         return ret;
     } else if (type != SSH_KEYTYPE_SSH2) {
