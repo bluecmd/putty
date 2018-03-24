@@ -171,6 +171,28 @@ struct ec_key {
     Bignum privateKey;
 };
 
+struct certv1_key {
+    const struct ssh_signkey *alg;
+    void *key;
+    unsigned char *todo_data;
+    int todo_data_len;
+/*
+TODO
+   string    nonce
+    uint64    serial
+    uint32    type
+    string    key id
+    string    valid principals
+    uint64    valid after
+    uint64    valid before
+    string    critical options
+    string    extensions
+    string    reserved
+    string    signature key
+    string    signature
+*/
+};
+
 struct ec_point *ec_public(const Bignum privateKey, const struct ec_curve *curve);
 
 int makekey(const unsigned char *data, int len, struct RSAKey *result,
@@ -472,6 +494,7 @@ extern const struct ssh_signkey ssh_dss;
 extern const struct ssh_signkey ssh_rsa;
 extern const struct ssh_signkey ssh_ecdsa_ed25519;
 extern const struct ssh_signkey ssh_ecdsa_nistp256;
+extern const struct ssh_signkey ssh_ecdsa_nistp256_certv1;
 extern const struct ssh_signkey ssh_ecdsa_nistp384;
 extern const struct ssh_signkey ssh_ecdsa_nistp521;
 extern const struct ssh_mac ssh_hmac_md5;
@@ -739,6 +762,10 @@ unsigned char *ssh2_userkey_loadpub(const Filename *filename, char **algorithm,
 				    const char **errorstr);
 int ssh2_save_userkey(const Filename *filename, struct ssh2_userkey *key,
 		      char *passphrase);
+unsigned char *openssh_certv1_to_pub_key(const unsigned char *cert_blob, 
+                                         int cert_blob_len,
+                                         int *public_blob_len,
+                                         const struct ssh_signkey *alg);
 const struct ssh_signkey *find_pubkey_alg(const char *name);
 const struct ssh_signkey *find_pubkey_alg_len(int namelen, const char *name);
 

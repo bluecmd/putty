@@ -620,6 +620,9 @@ const struct ssh_signkey *find_pubkey_alg_len(int namelen, const char *name)
 	return &ssh_dss;
     else if (match_ssh_id(namelen, name, "ecdsa-sha2-nistp256"))
         return &ssh_ecdsa_nistp256;
+    else if (match_ssh_id(namelen, name,
+                          "ecdsa-sha2-nistp256-cert-v01@openssh.com"))
+        return &ssh_ecdsa_nistp256_certv1;
     else if (match_ssh_id(namelen, name, "ecdsa-sha2-nistp384"))
         return &ssh_ecdsa_nistp384;
     else if (match_ssh_id(namelen, name, "ecdsa-sha2-nistp521"))
@@ -1838,20 +1841,20 @@ static int key_type_fp(FILE *fp)
         (p = p+1 + strspn(p+1, "0123456789"), *p == ' ') &&
         (p = p+1 + strspn(p+1, "0123456789"), *p == ' ' || *p == '\n' || !*p))
 	return SSH_KEYTYPE_SSH1_PUBLIC;
+    if ((p = buf + strcspn(buf, " "),
+        (p - buf) > sizeof(openssh_certv1_suffix)-1 &&
+        (memcmp(p - sizeof(openssh_certv1_suffix)-1,
+               openssh_certv1_suffix, sizeof(openssh_certv1_suffix)-1)) &&
+        find_pubkey_alg_len(p-buf, buf)) &&
+        (p = p+1 + strspn(p+1, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
+                          "klmnopqrstuvwxyz+/="),
+         *p == ' ' || *p == '\n' || !*p))
+	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1;
     if ((p = buf + strcspn(buf, " "), find_pubkey_alg_len(p-buf, buf)) &&
         (p = p+1 + strspn(p+1, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
                           "klmnopqrstuvwxyz+/="),
          *p == ' ' || *p == '\n' || !*p))
 	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH;
-    if ((p = buf + strcspn(buf, " "),
-        (p - buf) > sizeof(openssh_certv1_suffix)-1 &&
-        (memcmp(p - sizeof(openssh_certv1_suffix)-1,
-               openssh_certv1_suffix, sizeof(openssh_certv1_suffix)-1)) &&
-        find_pubkey_alg_len(p-buf-(sizeof(openssh_certv1_suffix)-1), buf)) &&
-        (p = p+1 + strspn(p+1, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
-                          "klmnopqrstuvwxyz+/="),
-         *p == ' ' || *p == '\n' || !*p))
-	return SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1;
     return SSH_KEYTYPE_UNKNOWN;	       /* unrecognised or EOF */
 }
 

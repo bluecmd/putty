@@ -1998,6 +1998,56 @@ static void *ecdsa_createkey(const struct ssh_signkey *self,
     return ec;
 }
 
+static void certv1_freekey(void *key)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    cert->alg->freekey(cert->key);
+    sfree(cert->todo_data);
+}
+
+static unsigned char *certv1_public_blob(void *key, int *len)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    // Return signature here I guess? TODO
+    unsigned char *blob = snewn(cert->todo_data_len, unsigned char);
+    memcpy(blob, cert->todo_data, cert->todo_data_len);
+    *len = cert->todo_data_len;
+    return blob;
+}
+
+static void *certv1_createkey(const struct ssh_signkey *self,
+                              const unsigned char *cert_blob,
+                              int cert_len,
+                              const unsigned char *priv_blob,
+                              int priv_len)
+{
+    struct ssh_signkey *alg;
+    int pub_len;
+    unsigned char *pub_blob;
+    struct certv1_key *cert;
+
+    alg = find_pubkey_alg((const char*)self->extra);
+    pub_blob = openssh_certv1_to_pub_key(cert_blob, cert_len, &pub_len, alg);
+    if (pub_blob == NULL)
+	return NULL;
+
+    cert = snew(struct certv1_key);
+    cert->alg = alg;
+    cert->key = alg->createkey(alg, pub_blob, pub_len, priv_blob, priv_len);
+    cert->todo_data = snewn(cert_len, unsigned char);
+    memcpy(cert->todo_data, cert_blob, cert_len);
+    cert->todo_data_len = cert_len;
+    // TODO
+    return cert;
+}
+
+static int certv1_pubkey_bits(const struct ssh_signkey *self,
+                              const void *blob, int len)
+{
+    // TODO
+    return 1337;
+}
+
 static void *ed25519_openssh_createkey(const struct ssh_signkey *self,
                                        const unsigned char **blob, int *len)
 {
@@ -2624,6 +2674,23 @@ const struct ssh_signkey ssh_ecdsa_nistp256 = {
     "ecdsa-sha2-nistp256",
     "ecdsa-sha2-nistp256",
     &sign_extra_nistp256,
+};
+const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
+    NULL /* newkey */,
+    certv1_freekey,
+    NULL /* certv1_fmtkey */,
+    certv1_public_blob,
+    NULL /* certv1_private_blob */,
+    certv1_createkey,
+    NULL /* certv1_openssh_createkey */,
+    NULL /* certv1_openssh_fmtkey */,
+    -1,
+    certv1_pubkey_bits,
+    NULL /* certv1_verifysig */,
+    NULL /* certv1_sign */,
+    "ecdsa-sha2-nistp256-certv01@openssh.com",
+    "ecdsa-sha2-nistp256-certv01@openssh.com",
+    "ecdsa-sha2-nistp256",
 };
 
 /* OID: 1.3.132.0.34 (secp384r1) */
