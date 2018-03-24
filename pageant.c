@@ -355,9 +355,6 @@ static int pageant_complete_certificate(struct ssh2_userkey *skey) {
 	}
     }
 
-    sfree(keylist);
-    sfree(blob);
-
     if (cert_priv_idx < 0)
 	goto error;
 
@@ -376,11 +373,14 @@ static int pageant_complete_certificate(struct ssh2_userkey *skey) {
 	                                  privblob, privbloblen);
 	/* OpenSSH copies the comment from the public key so let's do the same */
 	sfree(skey->comment);
+	sfree(privblob);
+	sfree(certblob);
 	skey->comment = dupstr(pkey->comment);
     }
 
+    sfree(keylist);
+    sfree(blob);
     return PAGEANT_ACTION_OK;
-
 error:
     if (keylist)
 	sfree(keylist);
@@ -1373,13 +1373,10 @@ static int *pageant_validate_add_keyfile(Filename *filename,
                                         int *ret, char **retstr)
  {
     unsigned char *blob;
-    unsigned char *cert_pub_blob = NULL;
-    char *certalg = NULL;
     const char *error = NULL;
     char *comment = NULL;
     unsigned char *keylist, *p;
-    int i, nkeys, bloblen, cert_pub_blob_len = 0, type, keylistlen;
-    int cert_priv_idx = -1;
+    int i, nkeys, bloblen, type, keylistlen;
 
     type = key_type(filename);
     if (type == SSH_KEYTYPE_SSH1) {
@@ -1391,8 +1388,12 @@ static int *pageant_validate_add_keyfile(Filename *filename,
 	keylist = pageant_get_keylist1(&keylistlen);
     } else {
 	unsigned char *blob2;
-	blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
-	                            &comment, &error);
+	if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1)
+	    blob = ssh2_userkey_loadcert(filename, NULL, &bloblen,
+		                         NULL, &error);
+	else
+	    blob = ssh2_userkey_loadpub(filename, NULL, &bloblen,
+	                                &comment, &error);
 	if (!blob) {
             *retstr = dupprintf("Couldn't load key (%s)", error);
 	    *ret = PAGEANT_ACTION_FAILURE;
@@ -1405,24 +1406,6 @@ static int *pageant_validate_add_keyfile(Filename *filename,
 	sfree(blob);
 	blob = blob2;
 	bloblen += 4;
-
-	if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1) {
-	    cert_pub_blob = blob;
-	    cert_pub_blob_len = bloblen;
-	    blob = ssh2_userkey_loadcert(filename, &certalg, &bloblen,
-		                         NULL, &error);
-	    if (!blob) {
-		*retstr = dupprintf("Couldn't load certificate (%s)", error);
-		*ret = PAGEANT_ACTION_FAILURE;
-		goto error;
-	    }
-	    blob2 = snewn(bloblen+4, unsigned char);
-	    PUT_32BIT(blob2, bloblen);
-	    memcpy(blob2 + 4, blob, bloblen);
-	    sfree(blob);
-	    blob = blob2;
-	    bloblen += 4;
-	}
 
 	keylist = pageant_get_keylist2(&keylistlen);
     }
@@ -1446,10 +1429,6 @@ static int *pageant_validate_add_keyfile(Filename *filename,
 		/* Key is already present; we can now leave. */
 		*ret = PAGEANT_ACTION_OK;
 		goto error;
-	    }
-	    if (cert_pub_blob_len > 0 &&
-		!memcmp(cert_pub_blob, p, cert_pub_blob_len)) {
-		cert_priv_idx = i;
 	    }
 	    /* Now skip over public blob */
 	    if (type == SSH_KEYTYPE_SSH1) {
@@ -1503,11 +1482,6 @@ static int *pageant_validate_add_keyfile(Filename *filename,
 	}
     }
 
-    if (type == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH_CERT_V1 && cert_priv_idx < 0) {
-	*retstr = dupstr("No matching private key loaded for certificate");
-	*ret = PAGEANT_ACTION_FAILURE;
-	goto error;
-    }
     sfree(keylist);
     sfree(comment);
     sfree(blob);
@@ -1520,10 +1494,6 @@ error:
 	sfree(keylist);
     if (blob)
 	sfree(blob);
-    if (cert_pub_blob)
-	sfree(cert_pub_blob);
-    if (certalg)
-	sfree(certalg);
     return ret;
 }
 
@@ -1557,8 +1527,7 @@ int pageant_add_keyfile(Filename *filename, const char *passphrase,
 
     /*
      * See if the key is already loaded (in the primary Pageant,
-     * which may or may not be us) or, in the case of certificates,
-     * the matching private key is not available.
+     * which may or may not be us).
      */
     if (pageant_validate_add_keyfile(filename, &ret, retstr))
 	return ret;
