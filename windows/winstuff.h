@@ -287,6 +287,9 @@ void write_aclip(void *frontend, int clipboard, char *, int, int);
  */
 #define FILTER_KEY_FILES ("PuTTY Private Key Files (*.ppk)\0*.ppk\0" \
 			      "All Files (*.*)\0*\0\0\0")
+#define FILTER_KEY_CERT_FILES ("PuTTY Private Key Files (*.ppk)\0*.ppk\0" \
+			      "OpenSSH Certificate Files (*-cert.pub)\0*-cert.pub\0" \
+			      "All Files (*.*)\0*\0\0\0")
 #define FILTER_WAVE_FILES ("Wave Files (*.wav)\0*.WAV\0" \
 			       "All Files (*.*)\0*\0\0\0")
 #define FILTER_DYNLIB_FILES ("Dynamic Library Files (*.dll)\0*.dll\0" \

@@ -453,14 +453,14 @@ static void prompt_add_keyfile(void)
     if (!keypath) keypath = filereq_new();
     memset(&of, 0, sizeof(of));
     of.hwndOwner = hwnd;
-    of.lpstrFilter = FILTER_KEY_FILES;
+    of.lpstrFilter = FILTER_KEY_CERT_FILES;
     of.lpstrCustomFilter = NULL;
     of.nFilterIndex = 1;
     of.lpstrFile = filelist;
     *filelist = '\0';
     of.nMaxFile = 8192;
     of.lpstrFileTitle = NULL;
-    of.lpstrTitle = "Select Private Key File";
+    of.lpstrTitle = "Select Private Key File or SSH Certificate";
     of.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER;
     if (request_file(keypath, &of, TRUE, FALSE)) {
 	if(strlen(filelist) > of.nFileOffset) {
