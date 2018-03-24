@@ -789,19 +789,6 @@ void *pageant_handle_msg(const void *msg, int msglen, int *outlen,
 	    }
 
 	    /*
-	     * For OpenSSH certificates we extend the protocol by allowing only the
-	     * certificate to be part of the message. We then copy the rest from
-	     * keys already loaded.
-	     */
-	    if (key->alg->private_blob(key->data, &bloblen) == NULL) {
-		if (pageant_complete_certificate(key) != PAGEANT_ACTION_OK) {
-		    sfree(key);
-		    fail_reason = "no matching loaded keys";
-		    goto failure;
-		}
-	    }
-
-	    /*
 	     * p has been advanced by openssh_createkey, but
 	     * certainly not _beyond_ the end of the buffer.
 	     */
@@ -828,6 +815,19 @@ void *pageant_handle_msg(const void *msg, int msglen, int *outlen,
 		comment[commlen] = '\0';
 	    }
 	    key->comment = comment;
+
+	    /*
+	     * For OpenSSH certificates we extend the protocol by allowing only the
+	     * certificate to be part of the message. We then copy the rest from
+	     * keys already loaded.
+	     */
+	    if (key->alg->private_blob(key->data, &bloblen) == NULL) {
+		if (pageant_complete_certificate(key) != PAGEANT_ACTION_OK) {
+		    sfree(key);
+		    fail_reason = "no matching loaded keys";
+		    goto failure;
+		}
+	    }
 
             if (logfn) {
                 char *fingerprint = ssh2_fingerprint(key->alg, key->data);

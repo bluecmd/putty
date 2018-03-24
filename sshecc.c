@@ -2025,6 +2025,16 @@ static unsigned char *certv1_public_blob(void *key, int *len)
     return blob;
 }
 
+static unsigned char *certv1_private_blob(void *key, int *len)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    if (cert->key == NULL) {
+	*len = 0;
+	return NULL;
+    }
+    return cert->alg->private_blob(cert->key, len);
+}
+
 static void *certv1_createkey(const struct ssh_signkey *self,
                               const unsigned char *cert_blob,
                               int cert_len,
@@ -2059,6 +2069,64 @@ static void *certv1_createkey(const struct ssh_signkey *self,
     // TODO
     return cert;
 }
+
+static int certv1_openssh_fmtkey(void *key, unsigned char *blob, int len)
+{
+    struct certv1_key *cert = (struct certv1_key *) key;
+    int bloblen;
+
+    bloblen = 4 + cert->certlen;
+    if (cert->key) {
+	// TODO
+    }
+
+    if (bloblen > len)
+        return bloblen;
+
+    /* Encode the certificate */
+    PUT_32BIT(blob, cert->certlen);
+    blob += 4;
+    memcpy(blob, cert->cert, cert->certlen);
+    blob += cert->certlen;
+
+    if (cert->key == NULL)
+	return bloblen;
+
+    return bloblen;
+}
+
+static void *certv1_openssh_createkey(const struct ssh_signkey *self,
+                                     const unsigned char **blob, int *len)
+{
+    struct certv1_key *cert;
+    const char **b = (const char **) blob;
+    const char *certblob;
+    int certbloblen;
+
+    getstring(b, len, &certblob, &certbloblen);
+
+    cert = (struct certv1_key *)certv1_createkey(self, certblob, certbloblen,
+                                                 NULL, 0);
+
+    // TODO(bluecmd):
+    // This part is a bit tricky. ECDSA has this format usually:
+    /*
+    	string			ecdsa_curve_name
+	string			ecdsa_public_key
+	mpint			ecdsa_private
+	string			key_comment
+	constraint[]		key_constraints
+	*/
+    /* but for certificates its:
+    	string			certificate
+	mpint			ecdsa_private_key
+	string			key_comment
+	constraint[]		key_constraints
+*/
+    /* The ordering is a bit weird as well so we might need to create per-algo functions here */
+    return cert;
+}
+
 
 static int certv1_pubkey_bits(const struct ssh_signkey *self,
                               const void *blob, int len)
@@ -2701,17 +2769,17 @@ const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
     certv1_freekey,
     NULL /* certv1_fmtkey */,
     certv1_public_blob,
-    NULL /* certv1_private_blob */,
+    certv1_private_blob,
     certv1_inner_blob,
     certv1_createkey,
-    NULL /* certv1_openssh_createkey */,
-    NULL /* certv1_openssh_fmtkey */,
+    certv1_openssh_createkey,
+    certv1_openssh_fmtkey,
     -1,
     certv1_pubkey_bits,
     NULL /* certv1_verifysig */,
     NULL /* certv1_sign */,
-    "ecdsa-sha2-nistp256-certv01@openssh.com",
-    "ecdsa-sha2-nistp256-certv01@openssh.com",
+    "ecdsa-sha2-nistp256-cert-v01@openssh.com",
+    "ecdsa-sha2-nistp256-cert-v01@openssh.com",
     "ecdsa-sha2-nistp256",
 };
 
