@@ -178,21 +178,6 @@ struct certv1_key {
     void *cert;
     int certlen;
     void *key;
-/*
-TODO
-   string    nonce
-    uint64    serial
-    uint32    type
-    string    key id
-    string    valid principals
-    uint64    valid after
-    uint64    valid before
-    string    critical options
-    string    extensions
-    string    reserved
-    string    signature key
-    string    signature
-*/
 };
 
 struct ec_point *ec_public(const Bignum privateKey, const struct ec_curve *curve);
