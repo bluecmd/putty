@@ -8,8 +8,8 @@
  * default stuff used for local development runs of 'make'.
  */
 
-#define TEXTVER "Unidentified build"
-#define SSHVER "PuTTY-Unidentified-Local-Build"
+#define TEXTVER "blueCmd Certificate Version"
+#define SSHVER "PuTTY-blueCmd-Cert-Hack"
 #define BINARY_VERSION 0,0,0,0
 
 #ifndef SOURCE_COMMIT
