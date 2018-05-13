@@ -185,3 +185,41 @@ const struct ssh_signkey ssh_ecdsa_nistp256_certv1 = {
     "ecdsa-sha2-nistp256-cert-v01@openssh.com",
     "ecdsa-sha2-nistp256",
 };
+
+const struct ssh_signkey ssh_ecdsa_nistp384_certv1 = {
+    NULL /* newkey */,
+    certv1_freekey,
+    NULL /* fmtkey */,
+    certv1_public_blob,
+    certv1_private_blob,
+    certv1_inner_blob,
+    certv1_createkey,
+    certv1_openssh_createkey,
+    certv1_openssh_fmtkey,
+    -1,
+    certv1_pubkey_bits,
+    NULL /* verifysig */,
+    certv1_sign,
+    "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+    "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+    "ecdsa-sha2-nistp384",
+};
+
+const struct ssh_signkey ssh_ecdsa_nistp521_certv1 = {
+    NULL /* newkey */,
+    certv1_freekey,
+    NULL /* fmtkey */,
+    certv1_public_blob,
+    certv1_private_blob,
+    certv1_inner_blob,
+    certv1_createkey,
+    certv1_openssh_createkey,
+    certv1_openssh_fmtkey,
+    -1,
+    certv1_pubkey_bits,
+    NULL /* verifysig */,
+    certv1_sign,
+    "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+    "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+    "ecdsa-sha2-nistp521",
+};

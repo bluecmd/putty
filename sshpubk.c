@@ -625,8 +625,14 @@ const struct ssh_signkey *find_pubkey_alg_len(int namelen, const char *name)
         return &ssh_ecdsa_nistp256_certv1;
     else if (match_ssh_id(namelen, name, "ecdsa-sha2-nistp384"))
         return &ssh_ecdsa_nistp384;
+    else if (match_ssh_id(namelen, name,
+                          "ecdsa-sha2-nistp384-cert-v01@openssh.com"))
+        return &ssh_ecdsa_nistp384_certv1;
     else if (match_ssh_id(namelen, name, "ecdsa-sha2-nistp521"))
         return &ssh_ecdsa_nistp521;
+    else if (match_ssh_id(namelen, name,
+                          "ecdsa-sha2-nistp521-cert-v01@openssh.com"))
+        return &ssh_ecdsa_nistp521_certv1;
     else if (match_ssh_id(namelen, name, "ssh-ed25519"))
         return &ssh_ecdsa_ed25519;
     else
